@@ -1,79 +1,47 @@
 local addonName, addon = ...
 
--- Function to initialize our hook for the quest header
-function addon:InitializeQuestHeaderRightClick()
-    -- Hook into the QuestMapQuestOptions_BuildMenu function to add our option
-    hooksecurefunc("QuestMapQuestOptions_BuildMenu", function(_, questLogIndex)
-        local info = C_QuestLog.GetInfo(questLogIndex)
+-- Function to hook into the quest header right-click menu
+local function InitializeQuestHeaderRightClick()
+    -- Create a frame to listen for events
+    local frame = CreateFrame("Frame")
+    
+    -- This function will run when we detect the dropdown menu is being shown
+    local function AddAbandonOption()
+        -- Check if this is a quest header dropdown menu
+        local dropdownMenu = UIDROPDOWNMENU_INIT_MENU
+        if not dropdownMenu or not dropdownMenu.questID then return end
         
-        -- Only add our menu option if this is a header
-        if info and info.isHeader then
-            local categoryName = info.title
-            
-            -- Add the "Abandon Quests" option to the dropdown menu
-            local abandonOption = {
-                text = "Abandon Quests",
-                func = function()
-                    -- Execute the same logic as /aq abandonall
-                    addon:AbandonAllQuestsInCategory(categoryName)
-                end
-            }
-            
-            -- Add our option to the dropdown menu
-            UIDropDownMenu_AddButton(abandonOption)
+        -- Get the quest info to check if it's a header
+        local questInfo = C_QuestLog.GetInfo(GetQuestLogIndexByID(dropdownMenu.questID))
+        if not questInfo or not questInfo.isHeader then return end
+        
+        local categoryName = questInfo.title
+        
+        -- If we've reached this point, it's a header dropdown, add our option
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "Abandon Quests"
+        info.notCheckable = true
+        info.func = function()
+            SlashCmdList["ABANDONQUEST"]("abandonall " .. categoryName)
         end
-    end)
+        UIDropDownMenu_AddButton(info)
+    end
+    
+    -- Hook into the UIDropDownMenu_Initialize function to detect when menus are being created
+    hooksecurefunc("UIDropDownMenu_Initialize", AddAbandonOption)
+    
+    print("|cFF00FF00AbandonQuest:|r Dropdown menu hook initialized.")
 end
 
--- Function to abandon all quests in a category (same logic as in SlashCommand.lua)
-function addon:AbandonAllQuestsInCategory(category)
-    print("Abandoning all quests in category: " .. category)
-    
-    local numEntries = C_QuestLog.GetNumQuestLogEntries()
-    local currentHeader = nil
-    local questsToAbandon = {}
-    
-    -- First pass: find all quests in the specified category
-    for i = 1, numEntries do
-        local questInfo = C_QuestLog.GetInfo(i)
-        
-        if questInfo then
-            if questInfo.isHeader then
-                -- This is a category header
-                currentHeader = questInfo.title
-            elseif not questInfo.isHeader and currentHeader and 
-                   string.lower(currentHeader) == string.lower(category) then
-                -- This is a quest under our target category
-                table.insert(questsToAbandon, {
-                    id = questInfo.questID,
-                    title = questInfo.title
-                })
-            end
-        end
-    end
-    
-    -- Second pass: abandon all identified quests
-    local numAbandoned = 0
-    for _, quest in ipairs(questsToAbandon) do
-        C_QuestLog.SetSelectedQuest(quest.id)
-        C_QuestLog.SetAbandonQuest()
-        C_QuestLog.AbandonQuest()
-        numAbandoned = numAbandoned + 1
-        print("  - Abandoned: " .. quest.title)
-    end
-    
-    if numAbandoned > 0 then
-        print("Successfully abandoned " .. numAbandoned .. " quests in category: " .. category)
-    else
-        print("No quests found in category: " .. category)
-    end
-end
-
--- Initialize our addon when ADDON_LOADED event fires
+-- Initialize when addon is loaded
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:SetScript("OnEvent", function(self, event, loadedAddonName)
-    if event == "ADDON_LOADED" and loadedAddonName == addonName then
-        addon:InitializeQuestHeaderRightClick()
-    end
+    if loadedAddonName ~= addonName then return end
+    
+    -- Initialize our right-click menu hook
+    InitializeQuestHeaderRightClick()
+    
+    -- Don't need to listen for this event anymore
+    self:UnregisterEvent("ADDON_LOADED")
 end)
