@@ -1,0 +1,8 @@
+## Interface: 110100
+## Title: AbandonQuest
+## Notes: Abandon several quests at once.
+## Author: F4LC0NN
+## Version: 0.0.1
+
+AbandonQuest.lua
+SlashCommand.lua
