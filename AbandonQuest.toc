@@ -6,5 +6,3 @@
 
 SlashCommand.lua
 AbandonQuest.lua
-AbandonQuest.xml
-AbandonQuest_ObjectiveTracker.lua

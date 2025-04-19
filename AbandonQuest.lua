@@ -1,9 +1,19 @@
 local addonName, addon = ...
 
+-- Debug utilities
+addon.Debug = {}
+addon.Debug.enabled = true
+
+addon.Debug.Log = function(...)
+    if addon.Debug.enabled then
+        print("|cFF00FFFF[AbandonQuest Debug]|r", ...)
+    end
+end
+
 -- Addon initialization
-addon.ShowMessage = function ()
-    local message = "AbandonQuest addon loaded successfully!"
-    print(message)
+addon.ShowMessage = function()
+    local message = "AbandonQuest addon loaded successfully! Use '/aq help' for commands."
+    print("|cFF00FF00" .. message .. "|r")
 end
 
 -- Function to abandon all quests in a specific category
@@ -52,80 +62,6 @@ addon.AbandonQuestsInCategory = function(category)
     end
 end
 
--- Create and hook right-click menu for quest headers
-addon.InitializeRightClickMenu = function()
-    -- Hook into the QuestLogPopupDetailFrame to add our menu option
-    hooksecurefunc("QuestLogPopupDetailFrame_Show", function()
-        -- Check if the selected quest is a header
-        local selectedQuest = C_QuestLog.GetSelectedQuest()
-        if selectedQuest then
-            local questInfo = C_QuestLog.GetInfo(C_QuestLog.GetLogIndexForQuestID(selectedQuest))
-            if questInfo and questInfo.isHeader then
-                -- Add our menu option to the quest log right-click menu
-                local abandonItem = {
-                    text = "Abandon Quests",
-                    func = function()
-                        addon.AbandonQuestsInCategory(questInfo.title)
-                    end
-                }
-                -- Add to the context menu
-                QuestLogPopupDetailFrame_AddContextMenuOption(abandonItem)
-            end
-        end
-    end)
-end
-
--- Hook into the right-click menu for quest headers in the quest log
-addon.HookQuestLogMenu = function()
-    -- Create a table to store our right-click menu options
-    local AbandonQuestMenu = CreateFrame("Frame", "AbandonQuestMenu", UIParent, "UIDropDownMenuTemplate")
-
-    -- Hook the quest log right-click menu
-    hooksecurefunc("QuestMapLogTitleButton_OnClick", function(self, button)
-        if button == "RightButton" then
-            local questID = self.questID
-            local questLogIndex = C_QuestLog.GetLogIndexForQuestID(questID)
-            local info = C_QuestLog.GetInfo(questLogIndex)
-            
-            if info and info.isHeader then
-                -- This is a category header, show our custom menu
-                UIDropDownMenu_Initialize(AbandonQuestMenu, function(frame, level, menuList)
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = "Abandon Quests"
-                    info.func = function()
-                        addon.AbandonQuestsInCategory(self.questTitle)
-                    end
-                    UIDropDownMenu_AddButton(info, level)
-                end, "MENU")
-                ToggleDropDownMenu(1, nil, AbandonQuestMenu, self, 0, 0)
-            end
-        end
-    end)
-    
-    -- Also hook the classic quest log if available
-    if QuestLogFrameItem_OnClick then
-        hooksecurefunc("QuestLogFrameItem_OnClick", function(self, button)
-            if button == "RightButton" then
-                local questIndex = self:GetID()
-                local info = C_QuestLog.GetInfo(questIndex)
-                
-                if info and info.isHeader then
-                    -- This is a category header, show our custom menu
-                    UIDropDownMenu_Initialize(AbandonQuestMenu, function(frame, level, menuList)
-                        local info = UIDropDownMenu_CreateInfo()
-                        info.text = "Abandon Quests"
-                        info.func = function()
-                            addon.AbandonQuestsInCategory(self.questTitle)
-                        end
-                        UIDropDownMenu_AddButton(info, level)
-                    end, "MENU")
-                    ToggleDropDownMenu(1, nil, AbandonQuestMenu, self, 0, 0)
-                end
-            end
-        end)
-    end
-end
-
 -- Create a confirm dialog for abandoning multiple quests
 addon.CreateConfirmDialog = function()
     StaticPopupDialogs["ABANDON_QUEST_CATEGORY"] = {
@@ -142,20 +78,192 @@ addon.CreateConfirmDialog = function()
     }
 end
 
+-- Store our added buttons to avoid duplicates
+addon.addedButtons = {}
+
+-- Create and add our custom buttons to quest headers
+addon.AddButtonsToQuestHeaders = function()
+    -- Function to process headers from the QuestMap frame
+    local function processQuestMapHeaders()
+        -- Find headers in QuestMapFrame
+        if QuestMapFrame and QuestMapFrame.QuestsFrame then
+            -- Get all children of the QuestsFrame
+            local children = {QuestMapFrame.QuestsFrame:GetChildren()}
+            for _, child in ipairs(children) do
+                -- Look for the Contents frame
+                if child:GetName() == "QuestMapQuestsFrame" or child:GetName() == "QuestMapFrameQuestsFrame" then
+                    local contents = child
+                    -- Get all children of the Contents frame
+                    local contentChildren = {contents:GetChildren()}
+                    for _, contentChild in ipairs(contentChildren) do
+                        -- Check if this is a header frame
+                        if contentChild.category and not addon.addedButtons[contentChild] then
+                            addon.Debug.Log("Found quest header: " .. contentChild.category)
+                            addon.AddButtonToHeader(contentChild)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Function to process headers from the classic quest log
+    local function processClassicQuestLogHeaders()
+        -- Try to find headers in the classic quest log if it exists
+        if QuestLogFrame then
+            for i = 1, 30 do -- Try a reasonable number of possible headers
+                local header = _G["QuestLogTitle" .. i]
+                if header and header.isHeader and not addon.addedButtons[header] then
+                    addon.Debug.Log("Found classic quest header: " .. header:GetText())
+                    addon.AddButtonToHeader(header)
+                end
+            end
+        end
+    end
+    
+    -- Try both methods
+    processQuestMapHeaders()
+    processClassicQuestLogHeaders()
+    
+    -- As a last resort, scan all frames with names matching likely quest header patterns
+    for _, pattern in ipairs({"QuestLogTitle%d+", "QuestHeader%d+", "QuestMapHeader%d+"}) do
+        for i = 1, 100 do -- Try a reasonable number
+            local frameName = pattern:gsub("%%d%+", tostring(i))
+            local frame = _G[frameName]
+            if frame and not addon.addedButtons[frame] then
+                addon.Debug.Log("Found potential quest header by name: " .. frameName)
+                addon.AddButtonToHeader(frame)
+            end
+        end
+    end
+end
+
+-- Add our custom button to a header frame
+addon.AddButtonToHeader = function(header)
+    if not header or addon.addedButtons[header] then return end
+    
+    -- Create the button
+    local button = CreateFrame("Button", nil, header)
+    button:SetSize(20, 20)
+    
+    -- Create a texture for the button
+    local texture = button:CreateTexture(nil, "ARTWORK")
+    texture:SetAllPoints()
+    texture:SetTexture("Interface\\Buttons\\UI-MinusButton-Up")
+    button.texture = texture
+    
+    -- Set the button's position relative to the header
+    button:SetPoint("RIGHT", header, "RIGHT", -5, 0)
+    
+    -- Set the button's tooltip
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Abandon all quests in this category")
+        GameTooltip:Show()
+    end)
+    
+    button:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
+    
+    -- Set the button's click handler
+    button:SetScript("OnClick", function(self)
+        local categoryName = nil
+        
+        -- Try to get the category name
+        if header.category then
+            categoryName = header.category
+        elseif header.GetText and header:GetText() then
+            categoryName = header:GetText()
+        elseif header.title then
+            categoryName = header.title
+        end
+        
+        if categoryName then
+            addon.Debug.Log("Abandon button clicked for: " .. categoryName)
+            StaticPopup_Show("ABANDON_QUEST_CATEGORY", nil, nil, categoryName)
+        else
+            addon.Debug.Log("Could not determine category name for header")
+        end
+    end)
+    
+    -- Mark this header as having our button
+    addon.addedButtons[header] = button
+    
+    addon.Debug.Log("Added abandon button to header")
+end
+
+-- Function to scan all frames for potential quest headers
+addon.ScanAllFrames = function()
+    local scanFrame = CreateFrame("Frame")
+    local scanTime = 0
+    local scanInterval = 0.1
+    
+    scanFrame:SetScript("OnUpdate", function(self, elapsed)
+        scanTime = scanTime + elapsed
+        if scanTime >= scanInterval then
+            scanTime = 0
+            
+            -- Check if the quest log is visible
+            if QuestMapFrame and QuestMapFrame:IsVisible() then
+                addon.AddButtonsToQuestHeaders()
+            end
+        end
+    end)
+    
+    addon.Debug.Log("Started frame scanning for quest headers")
+end
+
+-- Initialize slash commands
+addon.InitSlashCommands = function()
+    SLASH_ABANDONQUEST1 = "/abandonquest"
+    SLASH_ABANDONQUEST2 = "/aq"
+    
+    SlashCmdList["ABANDONQUEST"] = function(msg)
+        local command, rest = msg:match("^(%S*)%s*(.-)$")
+        command = command:lower()
+        
+        if command == "debug" then
+            addon.Debug.enabled = not addon.Debug.enabled
+            print("AbandonQuest Debug mode: " .. (addon.Debug.enabled and "|cFF00FF00Enabled|r" or "|cFFFF0000Disabled|r"))
+        elseif command == "scan" then
+            print("AbandonQuest: Scanning for quest headers...")
+            addon.AddButtonsToQuestHeaders()
+        elseif command == "abandon" and rest ~= "" then
+            addon.AbandonQuestsInCategory(rest)
+        elseif command == "help" or command == "" then
+            print("|cFF00FFFF=== AbandonQuest Help ===|r")
+            print("|cFFFFFFFF/aq debug|r - Toggle debug mode")
+            print("|cFFFFFFFF/aq scan|r - Manually scan for quest headers")
+            print("|cFFFFFFFF/aq abandon [category]|r - Abandon all quests in a category")
+        else
+            print("Unknown command. Type |cFFFFFFFF/aq help|r for a list of commands.")
+        end
+    end
+end
+
 -- Initialize the addon
 addon.InitializeAddon = function()
     addon.ShowMessage()
-    addon.InitializeRightClickMenu()
-    addon.HookQuestLogMenu()
     addon.CreateConfirmDialog()
+    addon.InitSlashCommands()
     
-    -- Register for events if needed
+    -- Register for events to ensure we catch when UI elements are created
     local frame = CreateFrame("Frame")
     frame:RegisterEvent("ADDON_LOADED")
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("QUEST_LOG_UPDATE")
+    
     frame:SetScript("OnEvent", function(self, event, arg1)
-        if event == "ADDON_LOADED" and arg1 == addonName then
-            -- Addon has loaded, do any needed setup
-            addon.ShowMessage()
+        if (event == "ADDON_LOADED" and arg1 == addonName) or 
+           event == "PLAYER_ENTERING_WORLD" then
+            -- Start scanning for frames
+            addon.ScanAllFrames()
+        elseif event == "QUEST_LOG_UPDATE" then
+            -- Scan for quest headers when the quest log updates
+            C_Timer.After(0.2, function()
+                addon.AddButtonsToQuestHeaders()
+            end)
         end
     end)
 end
