@@ -1,0 +1,41 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+    <!-- Main Frame for the addon -->
+    <Frame name="AbandonQuestFrame" parent="UIParent" hidden="true">
+        <Scripts>
+            <OnLoad>
+                self:RegisterEvent("ADDON_LOADED");
+            </OnLoad>
+            <OnEvent>
+                if event == "ADDON_LOADED" and arg1 == "AbandonQuest" then
+                    -- Call initialization function in AbandonQuest.lua
+                    local _, addon = ...;
+                    addon.InitializeAddon();
+                end
+            </OnEvent>
+        </Scripts>
+    </Frame>
+    
+    <!-- Right-click menu template for quest categories -->
+    <Button name="AbandonQuestCategoryButtonTemplate" virtual="true">
+        <Size x="200" y="20"/>
+        <Layers>
+            <Layer level="OVERLAY">
+                <FontString name="$parentText" inherits="GameFontNormal" justifyH="LEFT">
+                    <Anchors>
+                        <Anchor point="LEFT" x="10" y="0"/>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+        <Scripts>
+            <OnClick>
+                local _, addon = ...;
+                addon.AbandonQuestsInCategory(self.category);
+            </OnClick>
+        </Scripts>
+    </Button>
+    
+    <!-- Integration with Adventure Objective Tracker -->
+    <Script file="AbandonQuest_ObjectiveTracker.lua"/>
+</Ui>

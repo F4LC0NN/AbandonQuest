@@ -4,5 +4,7 @@
 ## Author: F4LC0NN
 ## Version: 0.0.1
 
-AbandonQuest.lua
 SlashCommand.lua
+AbandonQuest.lua
+AbandonQuest.xml
+AbandonQuest_ObjectiveTracker.lua
